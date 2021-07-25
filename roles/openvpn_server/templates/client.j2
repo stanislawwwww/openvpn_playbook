@@ -1,0 +1,12 @@
+client
+proto tcp
+dev tun
+remote {{ ansible_host }} 1194
+persist-key
+persist-tun
+ca ca.crt
+cert {{ item }}.crt
+key {{ item }}.key
+cipher AES-256-CBC
+comp-lzo
+verb 3
