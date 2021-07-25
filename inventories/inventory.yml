@@ -1,0 +1,9 @@
+all:
+  children:
+    openvpn_server:
+      hosts:
+        vpn_server
+    openvpn_clients:
+      hosts:
+        raspberrypi
+

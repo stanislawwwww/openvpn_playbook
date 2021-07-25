@@ -1,0 +1,228 @@
+- name: Gather the package facts
+  package_facts:
+    manager: auto
+
+- name: "Install packages"
+  package: 
+    state: "present"
+    name: "{{ item }}"
+  become: true
+  become_user: root
+  # when: "'{{ item }}' not in ansible_facts.packages"
+  loop:
+    - python3
+    - python3-pip
+    - python-is-python3 
+    - unzip
+    - openvpn
+    - dos2unix
+    - zip
+    - expect
+
+- pip:
+    name: "{{ item }}"
+  loop:
+    - markdown
+
+- name: Delete content & directory
+  file:
+    state: absent
+    path: /tmp/easy-rsa-master
+
+- name: Delete content & directory
+  file:
+    state: absent
+    path: /etc/openvpn
+  become: true
+  become_user: root
+
+
+- name: extract easy-rsa in tmp
+  unarchive:
+    src: "https://github.com/OpenVPN/easy-rsa/archive/master.zip"
+    dest: /tmp
+    remote_src: yes
+
+- name: build-dist.sh run
+  shell: ./build/build-dist.sh
+  args:
+    chdir: /tmp/easy-rsa-master/
+    executable: /bin/bash
+
+- name: extract builded easy-rsa
+  unarchive:
+    src: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development.tgz
+    dest: /tmp/easy-rsa-master/dist-staging/
+    remote_src: yes
+
+- name: init-pki
+  shell: ./easyrsa init-pki
+  args:
+    chdir: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development
+    executable: /bin/bash
+
+- name: build-ca with password
+  shell: |
+    set timeout 300
+    spawn ./easyrsa build-ca
+    expect "Enter New CA Key Passphrase:"
+    send -- "{{ openvpn_server_password }}\r"
+    expect "Re-Enter New CA Key Passphrase:"
+    send -- "{{ openvpn_server_password }}\r"
+    expect -re "Common Name.*:"
+    send -- "homevpn\n"
+    sleep 1
+  args:
+    chdir: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development
+    executable: /usr/bin/expect
+  when: openvpn_server_password is defined
+
+- name: build-ca without password
+  shell: |
+    set timeout 300
+    spawn ./easyrsa build-ca nopass
+    expect -re "Common Name.*:"
+    send -- "homevpn\n"
+    sleep 1
+  args:
+    chdir: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development
+    executable: /usr/bin/expect
+  when: openvpn_server_password is not defined
+
+- name: build-server-full with password
+  shell: |
+    set timeout 300
+    spawn ./easyrsa build-server-full server
+    expect "Enter PEM pass phrase:"
+    send -- "{{ openvpn_server_password }}\r"
+    expect "Verifying - Enter PEM pass phrase:"
+    send -- "{{ openvpn_server_password }}\r"
+    expect -re "Enter pass phrase for .*/ca.key:"
+    send -- "{{ openvpn_server_password }}\r"
+    sleep 1
+  args:
+    chdir: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development
+    executable: /usr/bin/expect
+  when: openvpn_server_password is defined
+
+- name: build-server-full without password
+  shell: ./easyrsa build-server-full server nopass
+  args:
+    chdir: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development
+    executable: /usr/bin/bash
+  when: openvpn_server_password is not defined
+
+- name: build-clients-full with password
+  shell: |
+    set timeout 300
+    spawn ./easyrsa build-client-full {{ item }}
+    expect "Enter PEM pass phrase:"
+    send -- "{{ openvpn_server_password }}\r"
+    expect "Verifying - Enter PEM pass phrase:"
+    send -- "{{ openvpn_server_password }}\r"
+    expect -re "Enter pass phrase for .*/ca.key:"
+    send -- "{{ openvpn_server_password }}\r"
+    sleep 1
+  args:
+    chdir: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development
+    executable: /usr/bin/expect
+  when: openvpn_server_password is defined
+  with_items: 
+    - "{{ openvpn_clients }}"
+    
+
+- name: build-clients-full without password
+  shell: ./easyrsa build-client-full {{ item }} nopass
+  args:
+    chdir: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development
+    executable: /usr/bin/bash
+  when: openvpn_server_password is not defined
+  with_items: 
+    - "{{ openvpn_clients }}"
+
+- name: generate DH parameters
+  shell: ./easyrsa gen-dh
+  args:
+    chdir: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development
+    executable: /usr/bin/bash
+
+- name: Create /etc/openvpn directory
+  file:
+    state: directory
+    path: /etc/openvpn
+  become: true
+  become_user: root
+
+- name: Create /etc/openvpn/server directory
+  file:
+    state: directory
+    path: /etc/openvpn/server
+  become: true
+  become_user: root
+
+
+- name: move dh.pem
+  shell: mv ./pki/dh.pem /etc/openvpn/server/dh.pem
+  args:
+    chdir: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development
+  become: true
+  become_user: root
+
+- name: move server.key
+  shell: mv ./pki/private/server.key /etc/openvpn/server/
+  args:
+    chdir: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development 
+  become: true
+  become_user: root
+  
+- name: move clients*.key
+  shell: mv ./pki/private/{{ item }}.key /etc/openvpn/server/
+  args:
+    chdir: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development 
+  become: true
+  become_user: root
+  with_items: 
+    - "{{ openvpn_clients }}"
+
+- name: move ca.crt
+  shell: mv ./pki/ca.crt /etc/openvpn/server/ca.crt
+  args:
+    chdir: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development
+  become: true
+  become_user: root
+
+- name: move server.crt
+  shell: mv ./pki/issued/server.crt /etc/openvpn/server/
+  args:
+    chdir: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development 
+  become: true
+  become_user: root
+  
+- name: move clients*.crt
+  shell: mv ./pki/issued/{{ item }}.crt /etc/openvpn/server/
+  args:
+    chdir: /tmp/easy-rsa-master/dist-staging/EasyRSA-git-development 
+  become: true
+  become_user: root
+  with_items: 
+    - "{{ openvpn_clients }}"
+
+- name: server.config from template
+  template:
+    src: templates/conf.j2
+    dest: /etc/openvpn/server/server.conf
+  become: true
+  become_user: root 
+
+# - name: Delete content & directory
+#   file:
+#     state: absent
+#     path: /tmp/easy-rsa-master
+
+- name: start 
+  ansible.builtin.systemd:
+    state: started
+    name: openvpn-server@server
+  become: true
+  become_user: root
+  when: openvpn_server_password is not defined

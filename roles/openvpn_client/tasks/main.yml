@@ -1,0 +1,9 @@
+- name: Gather the package facts
+  package_facts:
+    manager: auto
+- name: Install openvpn
+  apt:
+    name: openvpn
+    update_cache: yes
+  become: true
+  become_user: root

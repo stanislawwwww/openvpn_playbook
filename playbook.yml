@@ -1,0 +1,7 @@
+---
+- hosts: openvpn_server
+  roles:
+    - openvpn_server
+- hosts: openvpn_clients
+  roles:
+    - openvpn_client

@@ -1,0 +1,3 @@
+[submodule "check_and_restart"]
+	path = check_and_restart
+	url = https://github.com/stanislawwwww/check_and_restart
